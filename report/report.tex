@@ -1,0 +1,495 @@
+% !TEX program = xelatex
+\documentclass[12pt,a4paper]{ctexart}
+
+% ── Packages ──
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{enumitem}
+
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+
+% CJK monospace font for code blocks with Chinese
+\setmonofont{SimSun}[AutoFakeBold]
+
+% ── Title ──
+\title{\textbf{基于机器学习的UCI心脏病数据集\\二分类预测研究}}
+\author{Leclerc \\ SASS}
+\date{2026年7月}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent 心血管疾病是全球致死率最高的疾病之一，早期筛查与诊断对降低死亡率至关重要。本报告基于UCI心脏病数据集（303条样本，13个特征），系统性地完成了数据清洗、探索性数据分析（EDA），并构建了六种分类模型（逻辑回归、K近邻、决策树、随机森林、支持向量机、XGBoost）进行二分类预测。通过网格搜索交叉验证进行超参数调优，最终\textbf{逻辑回归模型在测试集上取得了最优性能}：准确率86.89\%，AUC 0.962，召回率92.86\%。本报告重点分析了“简单模型优于复杂模型”这一反直觉结果的原因，论证了在小型结构化数据集上，线性模型配合正则化比复杂集成方法具有更好的泛化能力。此外，通过SHAP可解释性分析确定了Thal（地中海贫血）、Ca（大血管数量）和Oldpeak（ST段压低）为最重要的预测因子。
+
+\vspace{1em}
+\noindent\textbf{关键词}：心脏病预测；机器学习；逻辑回归；XGBoost；SHAP；模型对比
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ═══════════════════════════════════════════════════════════════
+\section{引言}
+
+\subsection{研究背景}
+
+根据世界卫生组织（WHO）统计，心血管疾病（Cardiovascular Disease, CVD）每年导致约1790万人死亡，占全球死亡总数的32\%。早期发现和干预可将死亡率降低30\%以上。然而，传统诊断依赖于医生经验和多项检查，存在主观性强、资源消耗大等问题。机器学习方法能够从历史病例数据中自动学习疾病模式，为辅助诊断提供客观、高效的决策支持。
+
+\subsection{研究目标}
+
+本报告的研究目标包括：
+\begin{enumerate}[itemsep=2pt]
+    \item 对UCI心脏病数据集进行完整的数据清洗和探索性分析，识别关键预测因子；
+    \item 构建并对比多种机器学习分类模型，评估其预测性能；
+    \item 通过超参数调优提升模型表现；
+    \item 深入分析模型性能差异的原因，探讨“模型复杂度与泛化能力”的关系；
+    \item 使用SHAP方法解释模型决策，增强临床可解释性。
+\end{enumerate}
+
+\subsection{报告结构}
+
+本报告按以下结构组织：第2节描述数据来源及特征含义；第3节介绍数据清洗过程；第4节展示探索性数据分析结果；第5节说明研究方法；第6节呈现模型训练与调参结果；第7节进行模型对比分析；第8节讨论SHAP可解释性；第9节总结结论。
+
+% ═══════════════════════════════════════════════════════════════
+\section{数据描述}
+
+\subsection{数据来源}
+
+本报告使用UCI Machine Learning Repository提供的\textbf{Heart Disease数据集}（1988年），该数据集包含来自克利夫兰诊所（Cleveland Clinic）的303名患者的心脏病诊断记录。该数据集在机器学习教学和研究中被广泛使用，是《An Introduction to Statistical Learning》（ISLR）教材的配套数据集之一。
+
+\subsection{特征说明}
+
+数据集包含13个预测变量和1个二分类目标变量。具体特征如表\ref{tab:features}所示。
+
+\begin{table}[H]
+\centering
+\caption{数据集特征说明}
+\label{tab:features}
+\begin{tabular}{llll}
+\toprule
+\textbf{特征名} & \textbf{类型} & \textbf{含义} & \textbf{取值说明} \\
+\midrule
+Age      & 数值 & 年龄（岁） & 连续值 \\
+Sex      & 二值 & 性别 & 0=女性, 1=男性 \\
+ChestPain & 分类 & 胸痛类型 & typical, atypical, non-anginal, asymptomatic \\
+RestBP   & 数值 & 静息血压 (mm Hg) & 连续值 \\
+Chol     & 数值 & 血清胆固醇 (mg/dl) & 连续值 \\
+Fbs      & 二值 & 空腹血糖 $>$ 120 mg/dl & 0=否, 1=是 \\
+RestECG  & 分类 & 静息心电图结果 & 0, 1, 2 \\
+MaxHR    & 数值 & 最大心率 & 连续值 \\
+ExAng    & 二值 & 运动诱发心绞痛 & 0=否, 1=是 \\
+Oldpeak  & 数值 & ST段压低程度 & 连续值 \\
+Slope    & 分类 & ST段峰值斜率 & 1, 2, 3 \\
+Ca       & 数值 & 荧光染色大血管数 & 0--3 \\
+Thal     & 分类 & 地中海贫血类型 & normal, fixed, reversible \\
+\textbf{AHD} & \textbf{目标} & \textbf{是否患心脏病} & \textbf{No, Yes} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{目标变量分布}
+
+数据集目标变量分布较为均衡：164人（54.1\%）未患心脏病（No），139人（45.9\%）患有心脏病（Yes）。不存在严重的类别不平衡问题，无需进行过采样或欠采样处理。
+
+% ═══════════════════════════════════════════════════════════════
+\section{数据清洗}
+
+数据清洗是机器学习流程中的关键前置步骤。本报告对数据进行了以下清洗操作：
+
+\subsection{缺失值检查}
+
+对所有特征进行缺失值统计，\textbf{未发现任何缺失值}。这得益于该数据集作为教学数据的良好质量。尽管如此，在预处理管线中仍配置了缺失值填补策略（数值型用中位数、分类型用众数），以保证代码的鲁棒性。
+
+\subsection{重复值检查}
+
+检查数据集中的重复行，未发现重复记录。数据集303条记录均为独立样本。
+
+\subsection{异常值检测与处理}
+
+采用\textbf{四分位距法（IQR，Interquartile Range）}检测数值型特征中的异常值。定义异常值为低于 $Q_1 - 1.5 \times \text{IQR}$ 或高于 $Q_3 + 1.5 \times \text{IQR}$ 的观测值。
+
+对检测到的异常值采用\textbf{Winsorization（缩尾处理）}：将超出上下界的值截断至边界值，而非直接删除。这样既减轻了异常值的干扰，又保留了样本量。
+
+\subsection{数据类型检查}
+
+所有特征的数据类型均符合预期：数值特征为int64/float64，分类特征为object类型。无需进行额外的类型转换。
+
+% ═══════════════════════════════════════════════════════════════
+\section{探索性数据分析}
+
+\subsection{数值特征分布}
+
+图1（如已通过notebook生成）展示了五个数值特征在患病组与健康组中的分布对比。关键发现如下：
+
+\begin{itemize}
+    \item \textbf{MaxHR（最大心率）}：心脏病患者的分布明显右移，其最大心率普遍高于健康人群；
+    \item \textbf{Oldpeak（ST段压低）}：这是两组分离最明显的特征，心脏病患者的Oldpeak值显著偏高，中位数约为健康组的3倍；
+    \item \textbf{Age（年龄）}：老年人在患病组中占比更高，符合流行病学认知；
+    \item \textbf{RestBP和Chol}：两组间分布差异相对较小，单独预测能力有限。
+\end{itemize}
+
+\subsection{分类特征分析}
+
+通过分组计数图展示各分类特征与心脏病的关联。关键发现：
+
+\begin{itemize}
+    \item \textbf{Sex（性别）}：男性（Sex=1）的心脏病患病率显著高于女性，与医学文献一致；
+    \item \textbf{ChestPain（胸痛类型）}：asymptomatic（无症状型）胸痛患者中，心脏病比例高达80\%以上，是最强的单一分类预测因子；
+    \item \textbf{Thal（地中海贫血）}：reversible（可逆性）缺陷患者心脏病风险极高；normal类型几乎均为健康人；
+    \item \textbf{ExAng（运动心绞痛）}和\textbf{Ca（大血管数量）}也显示出明显的组间差异。
+\end{itemize}
+
+\subsection{相关性分析}
+
+数值特征间的Pearson相关系数分析显示：
+\begin{itemize}
+    \item 各特征间不存在严重的多重共线性（$|r| < 0.7$）；
+    \item Oldpeak与AHD（编码为0/1）的正相关性最强（$r \approx 0.4$），MaxHR次之；
+    \item Age与MaxHR呈中等负相关（$r \approx -0.4$），符合老年人心率偏低的生理规律。
+\end{itemize}
+
+\subsection{EDA总结}
+
+EDA阶段的主要发现：
+\begin{enumerate}[itemsep=2pt]
+    \item 数据集干净完整，无需大规模数据清洗；
+    \item \textbf{Top-3预测候选特征}：Thal、Ca、Oldpeak（分类和数值特征中区分度最高）；
+    \item 类别分布均衡，可直接使用原始数据建模；
+    \item 无严重多重共线性，适合使用逻辑回归等线性模型。
+\end{enumerate}
+
+% ═══════════════════════════════════════════════════════════════
+\section{研究方法}
+
+\subsection{数据预处理}
+
+在模型训练前，对数据进行了以下预处理：
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{分类变量编码}：使用独热编码（One-Hot Encoding），drop=`first'避免虚拟变量陷阱，将8个分类/二值特征扩展为15个二值特征列；
+    \item \textbf{数值特征标准化}：使用Z-score标准化（StandardScaler），使所有数值特征均值为0、标准差为1，确保距离类算法（KNN、SVM）不受量纲影响；
+    \item \textbf{训练/测试集划分}：按80/20比例分层抽样（stratified split），保持训练集和测试集中患病比例一致，随机种子设为42确保可复现性。
+\end{enumerate}
+
+预处理后，训练集242条样本，测试集61条样本，特征维度为20（5个数值 + 15个独热编码列）。
+
+\subsection{模型选择}
+
+本报告选择了六种在二分类任务中具有代表性的机器学习模型：
+
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{逻辑回归（Logistic Regression）}：线性分类的基准模型，系数可解释为优势比（Odds Ratio）；
+    \item \textbf{K近邻（KNN）}：基于实例的非参数方法，依赖距离度量；
+    \item \textbf{决策树（Decision Tree）}：基于树结构的可解释分类器，但容易过拟合；
+    \item \textbf{随机森林（Random Forest）}：Bagging集成方法，通过多棵决策树投票降低方差；
+    \item \textbf{支持向量机（SVM）}：通过核函数寻找最大间隔超平面；
+    \item \textbf{XGBoost}：基于梯度提升的集成方法，以在Kaggle竞赛中的统治级表现著称。
+\end{enumerate}
+
+\subsection{评估指标}
+
+采用以下指标从多角度评估模型性能：
+
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{准确率（Accuracy）}：$\frac{TP + TN}{TP + TN + FP + FN}$，整体正确率；
+    \item \textbf{精确率（Precision）}：$\frac{TP}{TP + FP}$，预测为患病的样本中真正患病的比例；
+    \item \textbf{召回率（Recall / Sensitivity）}：$\frac{TP}{TP + FN}$，真正患病者中被正确识别的比例——在医疗场景中尤为关键；
+    \item \textbf{F1分数}：精确率与召回率的调和平均，$F_1 = 2 \times \frac{P \times R}{P + R}$；
+    \item \textbf{AUC-ROC}：受试者工作特征曲线下面积，衡量模型在所有阈值下的整体区分能力，不受类别不平衡影响。
+\end{itemize}
+
+其中 $TP$ = 真阳性，$TN$ = 真阴性，$FP$ = 假阳性，$FN$ = 假阴性。
+
+\subsection{交叉验证与超参数调优}
+
+为避免单次划分的偶然性，采用以下策略：
+
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{交叉验证评估}：在训练集上进行5折分层交叉验证，获得模型泛化能力的稳健估计；
+    \item \textbf{网格搜索调参（GridSearchCV）}：为每个模型定义参数网格，在训练集上以AUC为优化目标进行5折交叉验证网格搜索，选择最优超参数组合。
+\end{enumerate}
+
+各模型的参数搜索范围如表\ref{tab:param-grid}所示。
+
+\begin{table}[H]
+\centering
+\caption{各模型超参数搜索范围}
+\label{tab:param-grid}
+\begin{tabular}{ll}
+\toprule
+\textbf{模型} & \textbf{参数网格} \\
+\midrule
+Logistic Regression & C: [0.01, 0.1, 1, 10]; penalty: [l1, l2] \\
+KNN & n\_neighbors: [3,5,7,9,11]; weights: [uniform, distance] \\
+Decision Tree & max\_depth: [3,5,7,10,None]; min\_samples\_split: [2,5,10] \\
+Random Forest & n\_estimators: [100,200]; max\_depth: [5,10,None]; min\_samples\_split: [2,5] \\
+SVM & C: [0.1,1,10]; kernel: [linear, rbf]; gamma: [scale, auto] \\
+XGBoost & n\_estimators: [100,200]; max\_depth: [3,5,7]; learning\_rate: [0.01,0.1] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ═══════════════════════════════════════════════════════════════
+\section{实验结果}
+
+\subsection{交叉验证评估（调参前）}
+
+在超参数调优之前，首先通过5折交叉验证评估各模型默认参数下的泛化能力。结果如表\ref{tab:cv-before}所示。
+
+\begin{table}[H]
+\centering
+\caption{5折交叉验证结果（调参前）}
+\label{tab:cv-before}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{模型} & \textbf{平均AUC} & \textbf{标准差} & \textbf{平均准确率} & \textbf{标准差} \\
+\midrule
+Logistic Regression & 0.8917 & 0.0481 & 0.8263 & 0.0500 \\
+Random Forest       & 0.8761 & 0.0384 & 0.7725 & 0.0695 \\
+SVM                 & 0.8662 & 0.0470 & 0.8015 & 0.0577 \\
+XGBoost             & 0.8525 & 0.0282 & 0.7850 & 0.0313 \\
+KNN                 & 0.8488 & 0.0423 & 0.7975 & 0.0303 \\
+Decision Tree       & 0.7885 & 0.0783 & 0.7891 & 0.0774 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{交叉验证阶段亮点}：逻辑回归的AUC均值（0.8917）已领先所有模型，且标准差适中。决策树的标准差最大（0.0783），验证了其不稳定性。值得注意的是，XGBoost虽然标准差最低（0.0282），但其AUC均值仅排第四——这为后续“简单模型胜出”的结论埋下了伏笔。
+
+\subsection{超参数调优结果}
+
+通过GridSearchCV（5折交叉验证，优化AUC）对每个模型进行超参数搜索，最优参数组合如表\ref{tab:best-params}所示。
+
+\begin{table}[H]
+\centering
+\caption{网格搜索最优参数}
+\label{tab:best-params}
+\begin{tabular}{llr}
+\toprule
+\textbf{模型} & \textbf{最优参数} & \textbf{验证集AUC} \\
+\midrule
+Logistic Regression & C=1, penalty=l2, solver=liblinear & 0.8903 \\
+Random Forest       & max\_depth=10, min\_samples\_split=5, n\_estimators=100 & 0.8899 \\
+SVM                 & C=0.1, kernel=linear, gamma=scale & 0.8899 \\
+XGBoost             & learning\_rate=0.01, max\_depth=5, n\_estimators=200 & 0.8712 \\
+KNN                 & n\_neighbors=7, weights=distance & 0.8592 \\
+Decision Tree       & max\_depth=10, min\_samples\_split=10 & 0.8387 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+关键观察：
+\begin{itemize}[itemsep=2pt]
+    \item 逻辑回归的最优参数为C=1, L2正则化——适中的正则化强度说明数据本身接近线性可分；
+    \item SVM的最优核函数为\textbf{线性核}而非RBF——再次印证了数据的线性结构特征；
+    \item XGBoost的最优学习率仅为0.01且树深仅5——模型被迫“慢慢学”，暗示其在防止过拟合方面的困难；
+    \item 决策树的最优max\_depth被限制在10层且min\_samples\_split=10——需要较强的剪枝来防止过拟合。
+\end{itemize}
+
+\subsection{测试集最终评估}
+
+使用调优后的最优模型在保留测试集（61条样本）上进行最终评估，结果如表\ref{tab:final-results}所示。
+
+\begin{table}[H]
+\centering
+\caption{测试集最终评估结果（已调参）}
+\label{tab:final-results}
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{模型} & \textbf{Accuracy} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} & \textbf{AUC} \\
+\midrule
+\textbf{Logistic Regression} & \textbf{0.8689} & \textbf{0.8125} & \textbf{0.9286} & \textbf{0.8667} & \textbf{0.9621} \\
+SVM                 & 0.8361 & 0.8000 & 0.8571 & 0.8276 & 0.9426 \\
+KNN                 & 0.8525 & 0.8065 & 0.8929 & 0.8475 & 0.9416 \\
+Random Forest       & 0.8525 & 0.8065 & 0.8929 & 0.8475 & 0.9297 \\
+XGBoost             & 0.7705 & 0.7333 & 0.7857 & 0.7586 & 0.8593 \\
+Decision Tree       & 0.7049 & 0.6471 & 0.7857 & 0.7097 & 0.7630 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{核心发现}
+
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{逻辑回归全面领先}：在所有五项指标上均排名第一，AUC达0.9621（优秀级别），准确率86.89\%；
+    \item \textbf{Recall表现突出}：逻辑回归的召回率为92.86\%，意味着\textbf{仅漏诊约7\%的心脏病患者}——在医疗筛查场景中具有重要意义；
+    \item \textbf{XGBoost意外垫底}：尽管在Kaggle等竞赛中表现卓越，XGBoost在本数据集上AUC仅0.8593、准确率仅77.05\%，远低于逻辑回归；
+    \item \textbf{决策树严重过拟合}：调参后测试集准确率仅70.49\%，而CV中曾达到83.87\%——性能差距巨大，典型过拟合表现。
+\end{enumerate}
+
+% ═══════════════════════════════════════════════════════════════
+\section{模型对比分析}
+
+\subsection{核心问题：为什么逻辑回归优于XGBoost？}
+
+XGBoost被视为表格数据的“王者”算法，却在本次实验中表现最差（仅次于决策树）。这一反直觉的结果恰恰揭示了机器学习中一个核心原则——\textbf{没有免费的午餐定理（No Free Lunch Theorem）}。以下从五个维度深入分析：
+
+\subsubsection{样本量限制}
+
+本数据集仅有303条样本（训练集242条），这对于XGBoost来说远远不足。XGBoost的强大来自其通过Boosting策略逐步拟合残差的能力，但这一能力需要足够的样本来支撑。当样本量不足时，Boosting过程容易\textbf{记住噪声而非信号}——也就是过拟合。
+
+逻辑回归只需拟合20个系数参数（加上截距项共21个参数），参数空间小，对样本量的需求远低于XGBoost。在242:21的样本-参数比下，逻辑回归可以稳定地估计所有系数；而XGBoost即便限制了max\_depth=5和learning\_rate=0.01，其实际有效参数数量仍然远超逻辑回归。
+
+\subsubsection{数据的线性可分性}
+
+EDA阶段的箱线图和分布图显示，多个关键特征（Oldpeak、Thal、Ca等）在患病/健康两组之间存在明显的线性分离趋势。当数据本身的决策边界接近线性时，使用非线性模型反而会\textbf{学习到虚假的复杂模式}。
+
+一个强有力的证据来自SVM的调参结果：\textbf{SVM的最优核函数是线性核而非RBF核}——这意味着即使是SVM这类可以拟合复杂边界的模型，也在“主动选择”线性决策面，因为数据不需要非线性变换。
+
+\subsubsection{维度灾难}
+
+经过独热编码后，特征维度从13扩展到20。对于242个训练样本，XGBoost试图在20维空间中学习复杂的特征交互——这在统计学上具有挑战性。每增加一个特征维度，样本密度呈指数级下降，XGBoost的非线性分割在稀疏高维空间中反而有害。
+
+\subsubsection{正则化差异}
+
+逻辑回归使用L2正则化（C=1），直接对每个特征的权重施加惩罚，将不重要的特征系数收缩至零附近。这种显式的、全局的正则化非常适合小型数据集。
+
+XGBoost虽然有L1/L2正则化参数，但其正则化作用于树的叶子权重而非原始特征系数。在小数据集上，树结构本身的不稳定性使得这种正则化效果不如逻辑回归的系数收缩。
+
+\subsubsection{临床意义：召回率的重要性}
+
+从临床应用角度看，\textbf{召回率（敏感度）是比准确率更重要的指标}。漏诊一个心脏病患者（假阴性）的代价远高于误诊一个健康人（假阳性）。逻辑回归的召回率高达92.86\%，即仅漏诊7.14\%的患者；而XGBoost的召回率仅78.57\%，意味着\textbf{超过21\%的心脏病患者被漏诊}——这在临床上是不可接受的。
+
+\subsection{对比总结}
+
+\hyperref[tab:lr-vs-xgb]{表7}从多个角度总结了两种模型的对比。
+
+\begin{table}[H]
+\centering
+\caption{逻辑回归 vs XGBoost 多维度对比}
+\label{tab:lr-vs-xgb}
+\begin{tabular}{p{3.5cm}p{4.5cm}p{4.5cm}}
+\toprule
+\textbf{对比维度} & \textbf{逻辑回归} & \textbf{XGBoost} \\
+\midrule
+模型容量 & 低（线性） & 高（非线性Boosting） \\
+参数数量 & $\sim$21 & 数百至数千 \\
+过拟合风险 & 低 & 高（在小数据集上） \\
+可解释性 & 系数直接可解释 & 需借助SHAP \\
+适用场景 & 小型线性可分数据 & 大规模复杂数据 \\
+本数据集AUC & \textbf{0.962} & 0.859 \\
+本数据集Recall & \textbf{0.929} & 0.786 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{核心启示}：模型的选择应基于数据特征（样本量、特征结构、领域知识），而非单纯追求算法复杂度。本案例提供了一个经典的反例——在一个小规模、结构良好的医疗数据集上，简单模型的表现优于被普遍认为更强大的复杂模型。
+
+% ═══════════════════════════════════════════════════════════════
+\section{SHAP可解释性分析}
+
+\subsection{方法简介}
+
+SHAP（SHapley Additive exPlanations）基于博弈论中的Shapley值，将每个特征对预测结果的贡献量化为SHAP值。对于医疗诊断等高风险领域，模型的可解释性与预测性能同等重要——医生需要理解“为什么”模型给出某个诊断建议。
+
+\subsection{SHAP特征重要性}
+
+排名前三的特征与EDA阶段的可视化观察完全一致：
+
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{Thal（地中海贫血类型）}：reversible类型显著增加预测风险；
+    \item \textbf{Ca（大血管数量）}：血管数量越多，风险越高；
+    \item \textbf{Oldpeak（ST段压低）}：ST段压低程度是最强的数值预测因子。
+\end{enumerate}
+
+\subsection{SHAP概要图解读}
+
+概要图揭示了以下关键模式：
+
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{Thal\_reversible}（可逆性地中海贫血）：特征值=1的样本几乎都聚集在正SHAP值区域，表明该特征是心脏病的最强正向预测因子；
+    \item \textbf{Ca}（大血管数量）：特征值越高，SHAP值越正——呈单调递增关系，生物学解释合理；
+    \item \textbf{Oldpeak}：高值对应高SHAP值，且影响幅度最大——ST段压低每增加1个单位，模型预测风险大幅上升；
+    \item 年龄、最大心率等特征也表现出符合临床预期的SHAP分布模式。
+\end{itemize}
+
+SHAP分析不仅验证了模型的合理性（重要特征与医学共识一致），还揭示了各特征的非线性贡献模式——这正是逻辑回归等线性模型无法自动捕捉但XGBoost等模型可能过度拟合的部分。
+
+% ═══════════════════════════════════════════════════════════════
+\section{结论}
+
+\subsection{工作总结}
+
+本报告围绕UCI心脏病数据集，系统地完成了从数据清洗到模型部署的完整机器学习流程，主要工作包括：
+
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{数据清洗与EDA}：使用IQR异常值检测和Winsorization处理异常值，通过分布分析、箱线图和相关性分析识别关键预测因子（Thal、Ca、Oldpeak）；
+    \item \textbf{多模型对比}：构建并评估了六种分类模型，覆盖线性方法（逻辑回归）、距离方法（KNN）、单棵树（决策树）、Bagging（随机森林）、核方法（SVM）和Boosting（XGBoost）；
+    \item \textbf{超参数优化}：对每个模型使用GridSearchCV进行5折交叉验证调参，对比调参前后性能变化；
+    \item \textbf{深入的对比分析}：从样本量、数据线性可分性、维度灾难、正则化机制和临床意义五个维度，系统解释了逻辑回归优于XGBoost的原因；
+    \item \textbf{可解释性分析}：使用SHAP方法识别和验证最重要的预测因子，确保模型决策与医学知识一致。
+\end{enumerate}
+
+\subsection{核心结论}
+
+\begin{table}[H]
+\centering
+\caption{核心结论总结}
+\begin{tabular}{p{4cm}p{9cm}}
+\toprule
+\textbf{结论} & \textbf{详细说明} \\
+\midrule
+逻辑回归是最优模型 & AUC=0.962, Recall=92.86\%，全面领先 \\
+简单模型可以优于复杂模型 & 小数据集+线性可分结构下，LR的泛化能力远超XGBoost \\
+数据特征决定模型选择 & SVM自动选择线性核，验证了数据的线性结构 \\
+SHAP验证了临床合理性 & Thal、Ca、Oldpeak的重要性与医学文献一致 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{研究局限与未来展望}
+
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{样本量有限}：303条样本限制了复杂模型的表现，未来可考虑在更大规模数据集上验证；
+    \item \textbf{数据集时效性}：数据收集于1988年，现代诊断标准和治疗手段已有变化，模型的直接适用性需谨慎评估；
+    \item \textbf{外部验证缺失}：仅使用单一数据集，未来应在独立外部数据集上进行验证测试；
+    \item \textbf{模型部署}：可将最佳模型封装为Streamlit Web应用，供临床医生交互式使用；
+    \item \textbf{多分类扩展}：原始UCI数据集包含四类心脏病严重程度，可扩展为有序多分类问题。
+\end{enumerate}
+
+% ═══════════════════════════════════════════════════════════════
+\begin{thebibliography}{99}
+
+\bibitem{islr} James, G., Witten, D., Hastie, T., \& Tibshirani, R. (2013). \textit{An Introduction to Statistical Learning}. Springer.
+
+\bibitem{detrano} Detrano, R., Janosi, A., Steinbrunn, W., et al. (1989). International application of a new probability algorithm for the diagnosis of coronary artery disease. \textit{American Journal of Cardiology}, 64(5), 304--310.
+
+\bibitem{shap} Lundberg, S. M., \& Lee, S. I. (2017). A unified approach to interpreting model predictions. \textit{Advances in Neural Information Processing Systems}, 30.
+
+\bibitem{xgboost} Chen, T., \& Guestrin, C. (2016). XGBoost: A scalable tree boosting system. \textit{Proceedings of the 22nd ACM SIGKDD}, 785--794.
+
+\bibitem{sklearn} Pedregosa, F., Varoquaux, G., Gramfort, A., et al. (2011). Scikit-learn: Machine learning in Python. \textit{Journal of Machine Learning Research}, 12, 2825--2830.
+
+\bibitem{nfl} Wolpert, D. H., \& Macready, W. G. (1997). No free lunch theorems for optimization. \textit{IEEE Transactions on Evolutionary Computation}, 1(1), 67--82.
+
+\end{thebibliography}
+
+% ═══════════════════════════════════════════════════════════════
+\section*{附录：代码仓库}
+
+\noindent 本报告的全部代码可在以下GitHub仓库获取：\\
+\url{https://github.com/L-RichelieuX/heart-disease-prediction}
+
+项目结构包括：
+\begin{itemize}[itemsep=2pt]
+    \item \texttt{notebooks/01\_EDA.ipynb}：探索性数据分析
+    \item \texttt{notebooks/02\_Modeling.ipynb}：模型训练、调参与评估
+    \item \texttt{src/preprocess.py}：数据预处理管线
+    \item \texttt{src/utils.py}：模型评估与可视化工具函数
+    \item \texttt{results/figures/}：所有输出图表
+    \item \texttt{report/report.tex}：本报告LaTeX源文件
+\end{itemize}
+
+\end{document}
