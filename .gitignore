@@ -28,10 +28,6 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Output
-results/figures/*.png
-results/figures/*.pdf
-
 # Data (keep raw, ignore processed)
 data/processed/
 
