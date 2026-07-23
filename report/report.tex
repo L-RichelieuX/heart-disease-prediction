@@ -14,7 +14,6 @@
 \geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 \graphicspath{{../results/figures/}}
-\setmonofont{SimSun}[AutoFakeBold]
 
 \title{\textbf{基于机器学习的UCI心脏病数据集\\二分类预测研究}}
 \author{Leclerc \\ SASS}
@@ -304,7 +303,7 @@ Age                  & -0.010 & 保护 \\
 \end{tabular}
 \end{table}
 
-以公式(\ref{eq:lr})为基础，输入任意一位患者的20维特征向量，就能直接计算出患病概率$p = 1/(1 + e^{-z})$，其中$z$为线性组合的结果。这种透明性是随机森林或XGBoost难以提供的——后者的预测函数是数百棵树的加权组合，无法压缩成一个简洁的数学表达式。
+以公式(\ref{eq:lr})为基础，输入任意一位患者的20维特征向量，就能直接计算出患病概率$p = 1/(1 + \exp(-z))$，其中$z$为线性组合的结果。这种透明性是随机森林或XGBoost难以提供的——后者的预测函数是数百棵树的加权组合，无法压缩成一个简洁的数学表达式。
 
 \subsection{LR系数与SHAP的对应关系}
 
